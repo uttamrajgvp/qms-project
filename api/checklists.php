@@ -37,8 +37,7 @@ switch ($method) {
 
 /**
  * Handle GET requests for checklists
- * 
- * Routes:
+ * * Routes:
  * GET /api/checklists.php?asset_id=1&type=Daily - Get checklists for asset and document type
  * GET /api/checklists.php?id=1 - Get specific checklist with items
  * GET /api/checklists.php - List all checklists for current user
@@ -253,77 +252,119 @@ function handlePostRequest() {
 /**
  * Handle PUT request to update checklist item
  * PUT /api/checklists.php?id=1&item_id=1
- * Body: {result: string, remarks: string}
+ * Body: {result: string, remarks: string, attached_file: string} or full checklist object
  */
 function handlePutRequest() {
     if (!hasRole(['superadmin', 'admin', 'auditor', 'dept_manager', 'technician'])) {
         jsonResponse(['success' => false, 'error' => 'Insufficient permissions'], 403);
     }
     
-    if (!isset($_GET['id']) || !isset($_GET['item_id'])) {
-        jsonResponse(['success' => false, 'error' => 'Checklist ID and item ID required'], 400);
-    }
-    
-    $checklistId = intval($_GET['id']);
-    $itemId = intval($_GET['item_id']);
-    
     $input = json_decode(file_get_contents('php://input'), true);
     
-    if (!$input || !isset($input['result'])) {
-        jsonResponse(['success' => false, 'error' => 'Result required'], 400);
+    if (!$input) {
+        jsonResponse(['success' => false, 'error' => 'Invalid request body'], 400);
     }
-    
-    $result = sanitize($input['result']);
-    $remarks = isset($input['remarks']) ? sanitize($input['remarks']) : '';
-    
-    if (!in_array($result, ['pass', 'fail', 'na'])) {
-        jsonResponse(['success' => false, 'error' => 'Invalid result value'], 400);
-    }
-    
+
     $db = Database::getInstance()->getConnection();
     
     try {
         $db->beginTransaction();
-        
-        // Update checklist item
-        $stmt = $db->prepare("
-            UPDATE checklist_items 
-            SET result = ?, remarks = ?, checked_by = ?, checked_at = NOW()
-            WHERE id = ? AND checklist_id = ?
-        ");
-        $stmt->execute([$result, $remarks, $_SESSION['user_id'], $itemId, $checklistId]);
-        
-        if ($stmt->rowCount() === 0) {
-            jsonResponse(['success' => false, 'error' => 'Checklist item not found'], 404);
+
+        // Check if this is a single item update (old logic) or bulk update
+        if (isset($input['checklist_id']) && isset($input['items'])) {
+            // Bulk update logic
+            $checklistId = intval($input['checklist_id']);
+            $items = $input['items'];
+
+            $stmt = $db->prepare("
+                UPDATE checklist_items 
+                SET result = ?, remarks = ?, attached_file = ?, checked_by = ?, checked_at = NOW()
+                WHERE id = ? AND checklist_id = ?
+            ");
+
+            foreach ($items as $item) {
+                $itemId = intval($item['id']);
+                $result = sanitize($item['result']);
+                $remarks = isset($item['remarks']) ? sanitize($item['remarks']) : null;
+                $attachedFile = isset($item['attached_file']) ? sanitize($item['attached_file']) : null;
+                $stmt->execute([$result, $remarks, $attachedFile, $_SESSION['user_id'], $itemId, $checklistId]);
+            }
+
+            // Update checklist status to completed if all items are checked
+            $stmt = $db->prepare("SELECT COUNT(*) FROM checklist_items WHERE checklist_id = ? AND result = 'pending'");
+            $stmt->execute([$checklistId]);
+            if ($stmt->fetchColumn() === 0) {
+                $db->prepare("UPDATE checklists SET status = 'completed', completed_at = NOW() WHERE id = ?")->execute([$checklistId]);
+            } else {
+                $db->prepare("UPDATE checklists SET status = 'in_progress' WHERE id = ?")->execute([$checklistId]);
+            }
+
+            // Log audit trail
+            logAuditTrail('bulk_update_checklist', 'checklist', $checklistId);
+            
+            $db->commit();
+            jsonResponse(['success' => true, 'message' => 'Checklist updated successfully']);
+
+        } else if (isset($_GET['id']) && isset($_GET['item_id'])) {
+            // Single item update (original logic)
+            $checklistId = intval($_GET['id']);
+            $itemId = intval($_GET['item_id']);
+            
+            if (!isset($input['result'])) {
+                jsonResponse(['success' => false, 'error' => 'Result required'], 400);
+            }
+            
+            $result = sanitize($input['result']);
+            $remarks = isset($input['remarks']) ? sanitize($input['remarks']) : '';
+            $attachedFile = isset($input['attached_file']) ? sanitize($input['attached_file']) : null;
+            
+            if (!in_array($result, ['pass', 'fail', 'na'])) {
+                jsonResponse(['success' => false, 'error' => 'Invalid result value'], 400);
+            }
+            
+            // Update checklist item
+            $stmt = $db->prepare("
+                UPDATE checklist_items 
+                SET result = ?, remarks = ?, attached_file = ?, checked_by = ?, checked_at = NOW()
+                WHERE id = ? AND checklist_id = ?
+            ");
+            $stmt->execute([$result, $remarks, $attachedFile, $_SESSION['user_id'], $itemId, $checklistId]);
+            
+            if ($stmt->rowCount() === 0) {
+                jsonResponse(['success' => false, 'error' => 'Checklist item not found'], 404);
+            }
+            
+            // If result is 'fail', create NCR
+            if ($result === 'fail') {
+                createNCRForFailedItem($itemId, $checklistId, $remarks);
+            }
+            
+            // Update checklist status to in_progress or completed
+            $stmt = $db->prepare("SELECT COUNT(*) FROM checklist_items WHERE checklist_id = ? AND result = 'pending'");
+            $stmt->execute([$checklistId]);
+            if ($stmt->fetchColumn() === 0) {
+                $db->prepare("UPDATE checklists SET status = 'completed', completed_at = NOW() WHERE id = ?")->execute([$checklistId]);
+            } else {
+                $db->prepare("UPDATE checklists SET status = 'in_progress' WHERE id = ?")->execute([$checklistId]);
+            }
+
+            $db->commit();
+            
+            // Log audit trail
+            logAuditTrail('update_checklist_item', 'checklist_item', $itemId, [
+                'checklist_id' => $checklistId,
+                'result' => $result,
+                'ncr_created' => ($result === 'fail')
+            ]);
+            
+            jsonResponse([
+                'success' => true,
+                'message' => 'Checklist item updated successfully'
+            ]);
+        } else {
+            jsonResponse(['success' => false, 'error' => 'Invalid request'], 400);
         }
-        
-        // If result is 'fail', create NCR
-        if ($result === 'fail') {
-            createNCRForFailedItem($itemId, $checklistId, $remarks);
-        }
-        
-        // Update checklist status to in_progress
-        $stmt = $db->prepare("
-            UPDATE checklists 
-            SET status = 'in_progress'
-            WHERE id = ? AND status = 'draft'
-        ");
-        $stmt->execute([$checklistId]);
-        
-        $db->commit();
-        
-        // Log audit trail
-        logAuditTrail('update_checklist_item', 'checklist_item', $itemId, [
-            'checklist_id' => $checklistId,
-            'result' => $result,
-            'ncr_created' => ($result === 'fail')
-        ]);
-        
-        jsonResponse([
-            'success' => true,
-            'message' => 'Checklist item updated successfully'
-        ]);
-        
+
     } catch (Exception $e) {
         $db->rollback();
         error_log("Error updating checklist item: " . $e->getMessage());

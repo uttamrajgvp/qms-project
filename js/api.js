@@ -264,6 +264,12 @@ class APIHelper {
         const response = await this.request('POST', 'checklists.php', checklistData);
         return response;
     }
+    
+    // New method for bulk saving a checklist
+    async saveChecklist(checklistData) {
+        const response = await this.request('PUT', 'checklists.php', checklistData);
+        return response;
+    }
 
     async updateChecklistItem(checklistId, itemId, updateData) {
         const response = await this.request('PUT', 
@@ -271,6 +277,12 @@ class APIHelper {
             updateData
         );
         return response;
+    }
+    
+    // New method for getting dashboard metrics
+    async getDashboardMetrics() {
+        const response = await this.request('GET', 'dashboard.php');
+        return response.data;
     }
 
     // File upload methods

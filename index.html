@@ -20,6 +20,11 @@
     <!-- Preload critical resources -->
     <link rel="preload" href="js/app.js" as="script">
     <link rel="preload" href="js/api.js" as="script">
+    
+    <!-- Google Fonts for futuristic look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <!-- Loading overlay -->
@@ -81,6 +86,9 @@
                 </div>
                 
                 <div class="header-right">
+                    <button id="themeToggle" class="theme-toggle-btn" aria-label="Toggle day/night mode">
+                        🌙 Night Mode
+                    </button>
                     <div class="user-info">
                         <span id="userName" class="user-name"></span>
                         <span id="userRole" class="user-role"></span>
@@ -186,6 +194,12 @@
                     
                     <div id="checklistContainer" class="checklist-container">
                         <!-- Checklist items will be loaded here -->
+                    </div>
+                    
+                    <div class="save-checklist-container">
+                        <button id="saveChecklistBtn" class="btn-primary">
+                            Save Checklist
+                        </button>
                     </div>
                 </div>
 

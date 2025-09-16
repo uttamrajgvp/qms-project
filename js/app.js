@@ -13,6 +13,9 @@ class QuailtyMedApp {
         this.currentChecklist = null;
         this.uploadItemId = null;
         
+        // Theme state
+        this.theme = localStorage.getItem('theme') || 'light';
+        
         // Bind methods to maintain context
         this.handleLogin = this.handleLogin.bind(this);
         this.handleLogout = this.handleLogout.bind(this);
@@ -20,6 +23,8 @@ class QuailtyMedApp {
         this.selectDepartment = this.selectDepartment.bind(this);
         this.selectAssetType = this.selectAssetType.bind(this);
         this.selectDocumentType = this.selectDocumentType.bind(this);
+        this.saveChecklist = this.saveChecklist.bind(this);
+        this.toggleTheme = this.toggleTheme.bind(this);
     }
 
     /**
@@ -28,6 +33,9 @@ class QuailtyMedApp {
     async init() {
         try {
             console.log('Initializing QuailtyMed...');
+            
+            // Set initial theme
+            this.setTheme(this.theme);
             
             // Check if user is already logged in
             const user = await api.getCurrentUser();
@@ -62,6 +70,12 @@ class QuailtyMedApp {
         if (logoutBtn) {
             logoutBtn.addEventListener('click', this.handleLogout);
         }
+        
+        // Day/Night mode toggle
+        const themeToggleBtn = document.getElementById('themeToggle');
+        if (themeToggleBtn) {
+            themeToggleBtn.addEventListener('click', this.toggleTheme);
+        }
 
         // Menu toggle for mobile
         const menuToggle = document.getElementById('menuToggle');
@@ -91,6 +105,9 @@ class QuailtyMedApp {
         document.getElementById('backToAssets')?.addEventListener('click', () => {
             this.showDocumentTypes(this.selectedAssetType);
         });
+        
+        // Save Checklist Button
+        document.getElementById('saveChecklistBtn')?.addEventListener('click', this.saveChecklist);
 
         // Modal close handlers
         document.querySelectorAll('.modal-close').forEach(btn => {
@@ -119,6 +136,34 @@ class QuailtyMedApp {
 
         // Keyboard navigation
         document.addEventListener('keydown', this.handleKeyboard.bind(this));
+    }
+    
+    /**
+     * Set the application theme
+     * @param {string} theme 'light' or 'dark'
+     */
+    setTheme(theme) {
+        document.body.classList.remove('light-mode', 'dark-mode');
+        document.body.classList.add(theme + '-mode');
+        localStorage.setItem('theme', theme);
+        this.theme = theme;
+        
+        const themeToggleBtn = document.getElementById('themeToggle');
+        if (themeToggleBtn) {
+            if (theme === 'dark') {
+                themeToggleBtn.innerHTML = '☀️ Day Mode';
+            } else {
+                themeToggleBtn.innerHTML = '🌙 Night Mode';
+            }
+        }
+    }
+    
+    /**
+     * Toggle between Day and Night mode
+     */
+    toggleTheme() {
+        const newTheme = this.theme === 'dark' ? 'light' : 'dark';
+        this.setTheme(newTheme);
     }
 
     /**
@@ -488,6 +533,7 @@ class QuailtyMedApp {
         items.forEach(item => {
             const itemDiv = document.createElement('div');
             itemDiv.className = 'checklist-item';
+            itemDiv.setAttribute('data-item-id', item.id);
             itemDiv.innerHTML = this.createChecklistItemHTML(item);
             container.appendChild(itemDiv);
             
@@ -516,7 +562,7 @@ class QuailtyMedApp {
         const remarksValue = api.sanitizeHTML(item.remarks || '');
         const attachmentInfo = item.attached_file ? `
             <div class="attachment-info">
-                📎 Evidence attached
+                <a href="${item.attached_file}" target="_blank">📎 Evidence Attached</a>
             </div>
         ` : '';
 
@@ -530,11 +576,11 @@ class QuailtyMedApp {
             <div class="checklist-controls">
                 <div class="result-options">
                     <button class="result-option pass ${resultClass === 'pass' ? 'active' : ''}" 
-                            data-result="pass">✓ Pass</button>
+                            data-result="pass" data-item-id="${item.id}">✓ Pass</button>
                     <button class="result-option fail ${resultClass === 'fail' ? 'active' : ''}" 
-                            data-result="fail">✗ Fail</button>
+                            data-result="fail" data-item-id="${item.id}">✗ Fail</button>
                     <button class="result-option na ${resultClass === 'na' ? 'active' : ''}" 
-                            data-result="na">N/A</button>
+                            data-result="na" data-item-id="${item.id}">N/A</button>
                 </div>
             </div>
             
@@ -573,14 +619,10 @@ class QuailtyMedApp {
             });
         }
 
-        // Remarks input (debounced save)
+        // Remarks input
         const remarksInput = itemDiv.querySelector('.remarks-input');
         if (remarksInput) {
-            const debouncedSave = api.debounce(() => {
-                this.saveChecklistItem(item.id);
-            }, 1000);
-            
-            remarksInput.addEventListener('input', debouncedSave);
+            // No need for debounced save here as a single save button is added
         }
 
         // Upload button
@@ -603,47 +645,61 @@ class QuailtyMedApp {
         itemDiv.querySelectorAll('.result-option').forEach(btn => {
             btn.classList.remove('active');
         });
-        itemDiv.querySelector(`[data-result="${result}"]`).classList.add('active');
-        
-        // Save the change
-        this.saveChecklistItem(itemId, result);
+        const selectedBtn = itemDiv.querySelector(`[data-result="${result}"]`);
+        if (selectedBtn) {
+            selectedBtn.classList.add('active');
+        }
     }
-
+    
     /**
-     * Save checklist item changes
-     * @param {number} itemId Item ID
-     * @param {string} result Optional result value
+     * Save the entire checklist
      */
-    async saveChecklistItem(itemId, result = null) {
+    async saveChecklist() {
+        if (!this.currentChecklist) {
+            api.showToast('No checklist to save', 'error');
+            return;
+        }
+
+        // Gather all checklist item data from the DOM
+        const checklistItems = [];
+        const itemElements = document.querySelectorAll('.checklist-item');
+        itemElements.forEach(itemEl => {
+            const itemId = itemEl.getAttribute('data-item-id');
+            const result = itemEl.querySelector('.result-option.active')?.dataset.result || 'pending';
+            const remarks = itemEl.querySelector('.remarks-input')?.value || '';
+            const attachedFile = itemEl.querySelector('.attachment-info a')?.getAttribute('href') || null;
+
+            checklistItems.push({
+                id: parseInt(itemId),
+                result: result,
+                remarks: remarks,
+                attached_file: attachedFile
+            });
+        });
+
+        const saveBtn = document.getElementById('saveChecklistBtn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        
         try {
-            const itemDiv = document.querySelector(`[data-item-id="${itemId}"]`).closest('.checklist-item');
-            const remarksInput = itemDiv.querySelector('.remarks-input');
-            const activeResult = itemDiv.querySelector('.result-option.active');
-            
-            const updateData = {
-                result: result || (activeResult ? activeResult.dataset.result : 'pending'),
-                remarks: remarksInput ? remarksInput.value : ''
-            };
-            
-            const response = await api.updateChecklistItem(
-                this.currentChecklist.id, 
-                itemId, 
-                updateData
-            );
-            
+            const response = await api.saveChecklist({
+                checklist_id: this.currentChecklist.id,
+                items: checklistItems
+            });
+
             if (response.success) {
-                // Show success feedback
-                api.showToast('Item updated', 'success', 2000);
-                
-                // If item failed, show NCR created message
-                if (updateData.result === 'fail') {
-                    api.showToast('Non-conformance report (NCR) created', 'warning');
-                }
+                api.showToast('Checklist saved successfully!', 'success');
+            } else {
+                api.showToast(response.error || 'Failed to save checklist.', 'error');
             }
-            
         } catch (error) {
-            console.error('Failed to save checklist item:', error);
-            api.showToast('Failed to save changes', 'error');
+            console.error('Failed to save checklist:', error);
+            api.showToast('Failed to save checklist.', 'error');
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save Checklist';
+            // Reload the checklist to update its status and refresh the data
+            this.loadChecklist(this.currentChecklist.id);
         }
     }
 
@@ -720,12 +776,11 @@ class QuailtyMedApp {
      */
     async loadDashboardData() {
         try {
-            // For now, show static data
-            // In a full implementation, you'd have dashboard API endpoints
-            document.getElementById('pendingChecklists').textContent = '12';
-            document.getElementById('overduePMs').textContent = '3';
-            document.getElementById('openNCRs').textContent = '5';
-            document.getElementById('complianceRate').textContent = '94%';
+            const metrics = await api.getDashboardMetrics();
+            document.getElementById('pendingChecklists').textContent = metrics.pendingChecklists;
+            document.getElementById('overduePMs').textContent = metrics.overduePMs;
+            document.getElementById('openNCRs').textContent = metrics.openNCRs;
+            document.getElementById('complianceRate').textContent = metrics.complianceRate;
             
         } catch (error) {
             console.error('Failed to load dashboard data:', error);
