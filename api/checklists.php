@@ -41,9 +41,34 @@ switch ($method) {
  * GET /api/checklists.php?asset_id=1&type=Daily - Get checklists for asset and document type
  * GET /api/checklists.php?id=1 - Get specific checklist with items
  * GET /api/checklists.php - List all checklists for current user
+ * GET /api/checklists.php?get_assets_by_type=1&asset_type_id=1 - Get all assets of a specific type
  */
 function handleGetRequest() {
     $db = Database::getInstance()->getConnection();
+
+    // Get assets for a specific asset type
+    if (isset($_GET['get_assets_by_type']) && isset($_GET['asset_type_id'])) {
+        $assetTypeId = intval($_GET['asset_type_id']);
+        if (!$assetTypeId) {
+            jsonResponse(['success' => false, 'error' => 'Invalid asset type ID'], 400);
+        }
+
+        try {
+            $stmt = $db->prepare("
+                SELECT id, name, asset_tag, location
+                FROM assets
+                WHERE asset_type_id = ?
+                ORDER BY name
+            ");
+            $stmt->execute([$assetTypeId]);
+            $assets = $stmt->fetchAll();
+            jsonResponse(['success' => true, 'data' => $assets]);
+        } catch (Exception $e) {
+            error_log("Error fetching assets: " . $e->getMessage());
+            jsonResponse(['success' => false, 'error' => 'Internal server error'], 500);
+        }
+        return;
+    }
     
     // Get specific checklist with items and standards
     if (isset($_GET['id'])) {
@@ -444,4 +469,3 @@ function createNCRForFailedItem($itemId, $checklistId, $remarks) {
         ]);
     }
 }
-?>

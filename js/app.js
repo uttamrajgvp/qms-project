@@ -10,6 +10,7 @@ class QuailtyMedApp {
         this.selectedDepartment = null;
         this.selectedAssetType = null;
         this.selectedDocumentType = null;
+        this.selectedAsset = null;
         this.currentChecklist = null;
         this.uploadItemId = null;
         
@@ -23,6 +24,8 @@ class QuailtyMedApp {
         this.selectDepartment = this.selectDepartment.bind(this);
         this.selectAssetType = this.selectAssetType.bind(this);
         this.selectDocumentType = this.selectDocumentType.bind(this);
+        this.showAssets = this.showAssets.bind(this);
+        this.selectAsset = this.selectAsset.bind(this);
         this.saveChecklist = this.saveChecklist.bind(this);
         this.toggleTheme = this.toggleTheme.bind(this);
     }
@@ -102,8 +105,12 @@ class QuailtyMedApp {
             this.showAssetTypes(this.selectedDepartment);
         });
 
-        document.getElementById('backToAssets')?.addEventListener('click', () => {
+        document.getElementById('backToDocumentTypes')?.addEventListener('click', () => {
             this.showDocumentTypes(this.selectedAssetType);
+        });
+
+        document.getElementById('backToAssets')?.addEventListener('click', () => {
+            this.showAssets(this.selectedDocumentType);
         });
         
         // Save Checklist Button
@@ -334,6 +341,7 @@ class QuailtyMedApp {
         this.selectedDepartment = department;
         this.selectedAssetType = null;
         this.selectedDocumentType = null;
+        this.selectedAsset = null;
         
         // Update UI selection state
         this.updateDepartmentSelection(department.id);
@@ -412,6 +420,7 @@ class QuailtyMedApp {
     async selectAssetType(assetType) {
         this.selectedAssetType = assetType;
         this.selectedDocumentType = null;
+        this.selectedAsset = null;
         
         await this.showDocumentTypes(assetType);
     }
@@ -466,8 +475,64 @@ class QuailtyMedApp {
     async selectDocumentType(documentType) {
         this.selectedDocumentType = documentType;
         
-        // For now, create a new checklist automatically
-        // In a full implementation, you'd show existing checklists first
+        // Show assets for the selected asset type
+        await this.showAssets(this.selectedAssetType);
+    }
+
+    /**
+     * Show assets for the selected asset type and document type
+     * @param {Object} assetType Selected asset type
+     */
+    async showAssets(assetType) {
+        try {
+            const assets = await api.getAssetsByAssetType(assetType.id);
+            
+            document.getElementById('assetsTitle').textContent = 
+                `Select Asset - ${this.selectedDocumentType.name}`;
+                
+            this.renderAssets(assets);
+            this.showView('assets');
+            
+        } catch (error) {
+            console.error('Failed to load assets:', error);
+            api.showToast('Failed to load assets', 'error');
+        }
+    }
+    
+    /**
+     * Render assets list
+     * @param {Array} assets List of assets
+     */
+    renderAssets(assets) {
+        const container = document.getElementById('assetsList');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        if (assets.length === 0) {
+            container.innerHTML = '<p>No assets found for this asset type.</p>';
+            return;
+        }
+        
+        assets.forEach(asset => {
+            const item = document.createElement('div');
+            item.className = 'asset-item';
+            item.innerHTML = `
+                <div class="item-name">${api.sanitizeHTML(asset.name)}</div>
+                <div class="item-description">Tag: ${api.sanitizeHTML(asset.asset_tag)} | Location: ${api.sanitizeHTML(asset.location)}</div>
+            `;
+            
+            item.addEventListener('click', () => this.selectAsset(asset));
+            container.appendChild(item);
+        });
+    }
+    
+    /**
+     * Handle asset selection
+     * @param {Object} asset Selected asset
+     */
+    async selectAsset(asset) {
+        this.selectedAsset = asset;
         await this.createNewChecklist();
     }
 
@@ -476,10 +541,8 @@ class QuailtyMedApp {
      */
     async createNewChecklist() {
         try {
-            // For demo purposes, we'll use the first asset from the asset type
-            // In a real implementation, you'd have asset selection UI
             const checklistData = {
-                asset_id: 1, // Demo asset ID
+                asset_id: this.selectedAsset.id,
                 document_type_id: this.selectedDocumentType.id,
                 checklist_name: `${this.selectedDocumentType.name} - ${new Date().toLocaleDateString()}`
             };
@@ -633,23 +696,6 @@ class QuailtyMedApp {
             });
         }
     }
-
-    /**
-     * Handle result selection for checklist item
-     * @param {Element} itemDiv Item container element
-     * @param {number} itemId Item ID
-     * @param {string} result Selected result
-     */
-    handleResultSelection(itemDiv, itemId, result) {
-        // Update UI state
-        itemDiv.querySelectorAll('.result-option').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        const selectedBtn = itemDiv.querySelector(`[data-result="${result}"]`);
-        if (selectedBtn) {
-            selectedBtn.classList.add('active');
-        }
-    }
     
     /**
      * Save the entire checklist
@@ -794,6 +840,7 @@ class QuailtyMedApp {
         this.selectedDepartment = null;
         this.selectedAssetType = null;
         this.selectedDocumentType = null;
+        this.selectedAsset = null;
         
         document.querySelectorAll('.department-item').forEach(item => {
             item.classList.remove('active');

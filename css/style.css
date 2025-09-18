@@ -824,6 +824,7 @@ body {
   font-size: var(--font-size-sm);
   cursor: pointer;
   transition: var(--transition-fast);
+  color: var(--text-color)
 }
 
 .upload-btn:hover {

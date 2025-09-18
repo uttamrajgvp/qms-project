@@ -259,6 +259,15 @@ class APIHelper {
         });
         return response.data;
     }
+    
+    // New method to get assets by asset type ID
+    async getAssetsByAssetType(assetTypeId) {
+        const response = await this.request('GET', 'checklists.php', {
+            get_assets_by_type: 1,
+            asset_type_id: assetTypeId
+        });
+        return response.data;
+    }
 
     async createChecklist(checklistData) {
         const response = await this.request('POST', 'checklists.php', checklistData);
