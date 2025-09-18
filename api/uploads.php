@@ -145,7 +145,7 @@ function handleFileDownload() {
         jsonResponse(['success' => false, 'error' => 'File parameter required'], 400);
     }
     
-    $storedFilename = sanitize($_GET['file']);
+    $storedFilename = basename($_GET['file']); // Sanitize with basename to prevent directory traversal
     $filePath = UPLOAD_PATH . $storedFilename;
     
     // Verify file exists and user has access

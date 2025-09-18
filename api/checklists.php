@@ -82,7 +82,7 @@ function handleGetRequest() {
             // Get checklist header
             $stmt = $db->prepare("
                 SELECT c.id, c.asset_id, c.document_type_id, c.checklist_name, c.status, 
-                       c.due_date, c.completed_at, c.created_at, c.signature_image,
+                       c.due_date, c.completed_at, c.created_at,
                        a.name as asset_name, a.asset_tag, a.location,
                        dt.name as document_type_name,
                        u1.name as created_by_name, u2.name as assigned_to_name
@@ -275,9 +275,9 @@ function handlePostRequest() {
 }
 
 /**
- * Handle PUT request to update checklist item or signoff
- * PUT /api/checklists.php?signoff=1&id=1
+ * Handle PUT request to update checklist item
  * PUT /api/checklists.php?id=1&item_id=1
+ * Body: {result: string, remarks: string, attached_file: string} or full checklist object
  */
 function handlePutRequest() {
     if (!hasRole(['superadmin', 'admin', 'auditor', 'dept_manager', 'technician'])) {
@@ -294,29 +294,6 @@ function handlePutRequest() {
     
     try {
         $db->beginTransaction();
-
-        // Handle signoff request
-        if (isset($_GET['signoff']) && isset($input['id']) && isset($input['signature_image'])) {
-            $checklistId = intval($input['id']);
-            $signatureImage = $input['signature_image'];
-
-            // Update checklist status and add signature
-            $stmt = $db->prepare("
-                UPDATE checklists
-                SET status = 'signed_off', signed_off_by = ?, signed_off_at = NOW(), signature_image = ?
-                WHERE id = ? AND status = 'completed'
-            ");
-            $stmt->execute([$_SESSION['user_id'], $signatureImage, $checklistId]);
-
-            if ($stmt->rowCount() === 0) {
-                jsonResponse(['success' => false, 'error' => 'Checklist not found or not ready for sign-off'], 404);
-            }
-            
-            logAuditTrail('sign_off_checklist', 'checklist', $checklistId);
-            $db->commit();
-            jsonResponse(['success' => true, 'message' => 'Checklist signed off successfully']);
-            return;
-        }
 
         // Check if this is a single item update (old logic) or bulk update
         if (isset($input['checklist_id']) && isset($input['items'])) {
@@ -426,28 +403,27 @@ function handlePutRequest() {
  * @return array Default items with NABH/JCI standards
  */
 function getDefaultChecklistItems($documentTypeId) {
+    // Sample default items mapped to NABH/JCI standards
     $db = Database::getInstance()->getConnection();
     
-    // Fetch items from the master checklist_items_templates table
-    try {
-        $stmt = $db->prepare("
-            SELECT
-                cit.id, cit.question, cit.standard_id
-            FROM checklist_items_templates cit
-            WHERE cit.document_type_id = ?
-            ORDER BY cit.order_index
-        ");
-        $stmt->execute([$documentTypeId]);
-        $items = $stmt->fetchAll();
-        
-        // This is a crucial step to ensure each item has a unique ID,
-        // as the template IDs are not suitable for individual checklist items.
-        // We will create new records in the checklist_items table on checklist creation.
-        return $items;
-    } catch (Exception $e) {
-        error_log("Failed to get default checklist items: " . $e->getMessage());
-        return [];
+    // In a real application, this would fetch from a `checklist_templates` table
+    // For this demonstration, we'll fetch a sample set of standards
+    
+    $stmt = $db->prepare("SELECT id, question, standard_id FROM standards_questions WHERE document_type_id = ? ORDER BY order_index");
+    $stmt->execute([$documentTypeId]);
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($items)) {
+        // Fallback to a hardcoded set if no templates are found
+        $items = [
+            ['question' => 'Equipment is clean and free from damage', 'standard_id' => 4],
+            ['question' => 'All safety devices are functioning properly', 'standard_id' => 2],
+            ['question' => 'Operating parameters are within specified ranges', 'standard_id' => 4],
+            ['question' => 'Log books are properly maintained', 'standard_id' => 1]
+        ];
     }
+    
+    return $items;
 }
 
 /**

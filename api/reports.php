@@ -187,7 +187,7 @@ function generateNCRReport($format) {
                 s.source as standard_source,
                 s.clause_id as standard_clause
             FROM ncrs n
-            LEFT JOIN departments d ON n.department_id = d.id
+            JOIN departments d ON n.department_id = d.id
             LEFT JOIN assets a ON n.asset_id = a.id
             JOIN users u1 ON n.raised_by = u1.id
             LEFT JOIN users u2 ON n.assigned_to = u2.id
@@ -669,3 +669,412 @@ function generateCompliancePDFHTML($data) {
     
     return $html;
 }
+
+/**
+ * Generate summary for checklist report
+ * @param array $data Checklist data
+ * @return array Summary statistics
+ */
+function generateChecklistSummary($data) {
+    $totalChecklists = count($data);
+    $completedChecklists = 0;
+    $totalCompliance = 0;
+    
+    foreach ($data as $row) {
+        if ($row['status'] === 'completed' || $row['status'] === 'signed_off') {
+            $completedChecklists++;
+        }
+        if (isset($row['compliance_percentage'])) {
+            $totalCompliance += $row['compliance_percentage'];
+        }
+    }
+    
+    return [
+        'total_checklists' => $totalChecklists,
+        'completed_checklists' => $completedChecklists,
+        'completion_rate' => $totalChecklists > 0 ? round(($completedChecklists / $totalChecklists) * 100, 2) : 0,
+        'average_compliance' => $totalChecklists > 0 ? round($totalCompliance / $totalChecklists, 2) : 0
+    ];
+}
+
+/**
+ * Generate summary for NCR report
+ * @param array $data NCR data
+ * @return array Summary statistics
+ */
+function generateNCRSummary($data) {
+    $totalNCRs = count($data);
+    $openNCRs = 0;
+    $overdueNCRs = 0;
+    $severityCount = ['low' => 0, 'medium' => 0, 'high' => 0, 'critical' => 0];
+    
+    foreach ($data as $row) {
+        if ($row['status'] === 'open' || $row['status'] === 'in_progress') {
+            $openNCRs++;
+        }
+        
+        if ($row['due_date'] && $row['status'] !== 'closed' && strtotime($row['due_date']) < time()) {
+            $overdueNCRs++;
+        }
+        
+        if (isset($severityCount[$row['severity']])) {
+            $severityCount[$row['severity']]++;
+        }
+    }
+    
+    return [
+        'total_ncrs' => $totalNCRs,
+        'open_ncrs' => $openNCRs,
+        'overdue_ncrs' => $overdueNCRs,
+        'severity_breakdown' => $severityCount
+    ];
+}
+
+/**
+ * Export compliance data as CSV
+ * @param array $data Compliance data
+ */
+function exportComplianceCSV($data) {
+    $filename = 'compliance_report_' . date('Y-m-d_H-i-s') . '.csv';
+    
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    $output = fopen('php://output', 'w');
+    
+    // Department compliance section
+    fputcsv($output, ['Department Compliance Summary']);
+    fputcsv($output, ['Department', 'Total Checklists', 'Total Items', 'Passed Items', 'Failed Items', 'Compliance %']);
+    
+    foreach ($data['department_compliance'] as $row) {
+        fputcsv($output, [
+            $row['department_name'],
+            $row['total_checklists'],
+            $row['total_items'],
+            $row['passed_items'],
+            $row['failed_items'],
+            $row['compliance_percentage'] . '%'
+        ]);
+    }
+    
+    // Empty row
+    fputcsv($output, []);
+    
+    // Standards compliance section
+    fputcsv($output, ['Standards Compliance Summary']);
+    fputcsv($output, ['Standard', 'Clause ID', 'Title', 'Total Items', 'Passed Items', 'Failed Items', 'Compliance %']);
+    
+    foreach ($data['standards_compliance'] as $row) {
+        fputcsv($output, [
+            $row['source'],
+            $row['clause_id'],
+            $row['title'],
+            $row['total_items'],
+            $row['passed_items'],
+            $row['failed_items'],
+            $row['compliance_percentage'] . '%'
+        ]);
+    }
+    
+    fclose($output);
+    exit;
+}
+
+/**
+ * Export compliance data as PDF
+ * @param array $data Compliance data
+ */
+function exportCompliancePDF($data) {
+    $filename = 'compliance_report_' . date('Y-m-d_H-i-s') . '.html';
+    
+    header('Content-Type: text/html; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    // Generate comprehensive compliance PDF HTML
+    $html = generateCompliancePDFHTML($data);
+    echo $html;
+    exit;
+}
+
+/**
+ * Generate comprehensive compliance PDF HTML
+ * @param array $data Compliance data
+ * @return string HTML content
+ */
+function generateCompliancePDFHTML($data) {
+    $html = '<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Compliance Summary Report</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1, h2 { color: #1e40af; }
+            h1 { border-bottom: 2px solid #1e40af; padding-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f3f4f6; font-weight: bold; }
+            .high-compliance { background-color: #dcfce7; }
+            .medium-compliance { background-color: #fef3c7; }
+            .low-compliance { background-color: #fee2e2; }
+        </style>
+    </head>
+    <body>
+        <h1>Compliance Summary Report</h1>
+        <p>Generated: ' . $data['generated_at'] . '</p>
+        
+        <h2>Department Compliance</h2>
+        <table>';
+    
+    $html .= '<tr><th>Department</th><th>Checklists</th><th>Total Items</th><th>Passed</th><th>Failed</th><th>Compliance %</th></tr>';
+    
+    foreach ($data['department_compliance'] as $row) {
+        $complianceClass = '';
+        if ($row['compliance_percentage'] >= 90) $complianceClass = 'high-compliance';
+        elseif ($row['compliance_percentage'] >= 75) $complianceClass = 'medium-compliance';
+        else $complianceClass = 'low-compliance';
+        
+        $html .= "<tr class='$complianceClass'>
+            <td>" . htmlspecialchars($row['department_name']) . "</td>
+            <td>" . $row['total_checklists'] . "</td>
+            <td>" . $row['total_items'] . "</td>
+            <td>" . $row['passed_items'] . "</td>
+            <td>" . $row['failed_items'] . "</td>
+            <td>" . $row['compliance_percentage'] . "%</td>
+        </tr>";
+    }
+    
+    $html .= '</table>
+        
+        <h2>Standards Compliance</h2>
+        <table>
+        <tr><th>Standard</th><th>Clause</th><th>Title</th><th>Items</th><th>Passed</th><th>Failed</th><th>Compliance %</th></tr>';
+    
+    foreach ($data['standards_compliance'] as $row) {
+        $complianceClass = '';
+        if ($row['compliance_percentage'] >= 90) $complianceClass = 'high-compliance';
+        elseif ($row['compliance_percentage'] >= 75) $complianceClass = 'medium-compliance';
+        else $complianceClass = 'low-compliance';
+        
+        $html .= "<tr class='$complianceClass'>
+            <td>" . htmlspecialchars($row['source']) . "</td>
+            <td>" . htmlspecialchars($row['clause_id']) . "</td>
+            <td>" . htmlspecialchars($row['title']) . "</td>
+            <td>" . $row['total_items'] . "</td>
+            <td>" . $row['passed_items'] . "</td>
+            <td>" . $row['failed_items'] . "</td>
+            <td>" . $row['compliance_percentage'] . "%</td>
+        </tr>";
+    }
+    
+    $html .= '</table>
+    </body>
+    </html>';
+    
+    return $html;
+}
+
+/**
+ * Generate summary for checklist report
+ * @param array $data Checklist data
+ * @return array Summary statistics
+ */
+function generateChecklistSummary($data) {
+    $totalChecklists = count($data);
+    $completedChecklists = 0;
+    $totalCompliance = 0;
+    
+    foreach ($data as $row) {
+        if ($row['status'] === 'completed' || $row['status'] === 'signed_off') {
+            $completedChecklists++;
+        }
+        if (isset($row['compliance_percentage'])) {
+            $totalCompliance += $row['compliance_percentage'];
+        }
+    }
+    
+    return [
+        'total_checklists' => $totalChecklists,
+        'completed_checklists' => $completedChecklists,
+        'completion_rate' => $totalChecklists > 0 ? round(($completedChecklists / $totalChecklists) * 100, 2) : 0,
+        'average_compliance' => $totalChecklists > 0 ? round($totalCompliance / $totalChecklists, 2) : 0
+    ];
+}
+
+/**
+ * Generate summary for NCR report
+ * @param array $data NCR data
+ * @return array Summary statistics
+ */
+function generateNCRSummary($data) {
+    $totalNCRs = count($data);
+    $openNCRs = 0;
+    $overdueNCRs = 0;
+    $severityCount = ['low' => 0, 'medium' => 0, 'high' => 0, 'critical' => 0];
+    
+    foreach ($data as $row) {
+        if ($row['status'] === 'open' || $row['status'] === 'in_progress') {
+            $openNCRs++;
+        }
+        
+        if ($row['due_date'] && $row['status'] !== 'closed' && strtotime($row['due_date']) < time()) {
+            $overdueNCRs++;
+        }
+        
+        if (isset($severityCount[$row['severity']])) {
+            $severityCount[$row['severity']]++;
+        }
+    }
+    
+    return [
+        'total_ncrs' => $totalNCRs,
+        'open_ncrs' => $openNCRs,
+        'overdue_ncrs' => $overdueNCRs,
+        'severity_breakdown' => $severityCount
+    ];
+}
+
+/**
+ * Export compliance data as CSV
+ * @param array $data Compliance data
+ */
+function exportComplianceCSV($data) {
+    $filename = 'compliance_report_' . date('Y-m-d_H-i-s') . '.csv';
+    
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    $output = fopen('php://output', 'w');
+    
+    // Department compliance section
+    fputcsv($output, ['Department Compliance Summary']);
+    fputcsv($output, ['Department', 'Total Checklists', 'Total Items', 'Passed Items', 'Failed Items', 'Compliance %']);
+    
+    foreach ($data['department_compliance'] as $row) {
+        fputcsv($output, [
+            $row['department_name'],
+            $row['total_checklists'],
+            $row['total_items'],
+            $row['passed_items'],
+            $row['failed_items'],
+            $row['compliance_percentage'] . '%'
+        ]);
+    }
+    
+    // Empty row
+    fputcsv($output, []);
+    
+    // Standards compliance section
+    fputcsv($output, ['Standards Compliance Summary']);
+    fputcsv($output, ['Standard', 'Clause ID', 'Title', 'Total Items', 'Passed Items', 'Failed Items', 'Compliance %']);
+    
+    foreach ($data['standards_compliance'] as $row) {
+        fputcsv($output, [
+            $row['source'],
+            $row['clause_id'],
+            $row['title'],
+            $row['total_items'],
+            $row['passed_items'],
+            $row['failed_items'],
+            $row['compliance_percentage'] . '%'
+        ]);
+    }
+    
+    fclose($output);
+    exit;
+}
+
+/**
+ * Export compliance data as PDF
+ * @param array $data Compliance data
+ */
+function exportCompliancePDF($data) {
+    $filename = 'compliance_report_' . date('Y-m-d_H-i-s') . '.html';
+    
+    header('Content-Type: text/html; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    // Generate comprehensive compliance PDF HTML
+    $html = generateCompliancePDFHTML($data);
+    echo $html;
+    exit;
+}
+
+/**
+ * Generate comprehensive compliance PDF HTML
+ * @param array $data Compliance data
+ * @return string HTML content
+ */
+function generateCompliancePDFHTML($data) {
+    $html = '<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Compliance Summary Report</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1, h2 { color: #1e40af; }
+            h1 { border-bottom: 2px solid #1e40af; padding-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f3f4f6; font-weight: bold; }
+            .high-compliance { background-color: #dcfce7; }
+            .medium-compliance { background-color: #fef3c7; }
+            .low-compliance { background-color: #fee2e2; }
+        </style>
+    </head>
+    <body>
+        <h1>Compliance Summary Report</h1>
+        <p>Generated: ' . $data['generated_at'] . '</p>
+        
+        <h2>Department Compliance</h2>
+        <table>';
+    
+    $html .= '<tr><th>Department</th><th>Checklists</th><th>Total Items</th><th>Passed</th><th>Failed</th><th>Compliance %</th></tr>';
+    
+    foreach ($data['department_compliance'] as $row) {
+        $complianceClass = '';
+        if ($row['compliance_percentage'] >= 90) $complianceClass = 'high-compliance';
+        elseif ($row['compliance_percentage'] >= 75) $complianceClass = 'medium-compliance';
+        else $complianceClass = 'low-compliance';
+        
+        $html .= "<tr class='$complianceClass'>
+            <td>" . htmlspecialchars($row['department_name']) . "</td>
+            <td>" . $row['total_checklists'] . "</td>
+            <td>" . $row['total_items'] . "</td>
+            <td>" . $row['passed_items'] . "</td>
+            <td>" . $row['failed_items'] . "</td>
+            <td>" . $row['compliance_percentage'] . "%</td>
+        </tr>";
+    }
+    
+    $html .= '</table>
+        
+        <h2>Standards Compliance</h2>
+        <table>
+        <tr><th>Standard</th><th>Clause</th><th>Title</th><th>Items</th><th>Passed</th><th>Failed</th><th>Compliance %</th></tr>';
+    
+    foreach ($data['standards_compliance'] as $row) {
+        $complianceClass = '';
+        if ($row['compliance_percentage'] >= 90) $complianceClass = 'high-compliance';
+        elseif ($row['compliance_percentage'] >= 75) $complianceClass = 'medium-compliance';
+        else $complianceClass = 'low-compliance';
+        
+        $html .= "<tr class='$complianceClass'>
+            <td>" . htmlspecialchars($row['source']) . "</td>
+            <td>" . htmlspecialchars($row['clause_id']) . "</td>
+            <td>" . htmlspecialchars($row['title']) . "</td>
+            <td>" . $row['total_items'] . "</td>
+            <td>" . $row['passed_items'] . "</td>
+            <td>" . $row['failed_items'] . "</td>
+            <td>" . $row['compliance_percentage'] . "%</td>
+        </tr>";
+    }
+    
+    $html .= '</table>
+    </body>
+    </html>';
+    
+    return $html;
+}
+?>
