@@ -422,6 +422,7 @@ Users can install the web app directly from their browser:
 
 | Feature | Super Admin | Admin | Auditor | Dept Manager | Technician | Viewer |
 |---------|-------------|-------|---------|--------------|------------|--------|
+| Create every Input type | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ |
 | Create Checklists | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Update Items | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Upload Files | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |

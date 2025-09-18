@@ -21,6 +21,10 @@
     <link rel="preload" href="js/app.js" as="script">
     <link rel="preload" href="js/api.js" as="script">
     
+    <!-- Third-party libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    
     <!-- Google Fonts for futuristic look -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -170,15 +174,42 @@
                                 <span class="btn-icon">📝</span>
                                 Create Checklist
                             </button>
-                            <button id="schedulePMBtn" class="action-btn">
-                                <span class="btn-icon">⏰</span>
-                                Schedule PM
+                            <button id="showReportsBtn" class="action-btn">
+                                <span class="btn-icon">📈</span>
+                                Reports
                             </button>
-                            <button id="raiseNCRBtn" class="action-btn">
+                            <button id="showNCRsBtn" class="action-btn">
                                 <span class="btn-icon">⚠️</span>
-                                Raise NCR
+                                Open NCRs
                             </button>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Reports View -->
+                <div id="reportsView" class="view-container">
+                    <div class="view-header">
+                        <button id="backToDashboard" class="back-btn">← Back to Dashboard</button>
+                        <h2 id="reportsTitle">Compliance Reports</h2>
+                    </div>
+                    <div class="reports-container" id="reportsContainer">
+                        <div class="chart-container">
+                            <canvas id="complianceChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="standardsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NCRs View -->
+                <div id="ncrsView" class="view-container">
+                    <div class="view-header">
+                        <button id="backToDashboard" class="back-btn">← Back to Dashboard</button>
+                        <h2 id="ncrsTitle">Open NCRs</h2>
+                    </div>
+                    <div class="ncrs-container" id="ncrsContainer">
+                        <!-- NCR list will be dynamically loaded here -->
                     </div>
                 </div>
 
@@ -190,6 +221,11 @@
                     </div>
                     <div id="assetsList" class="assets-list">
                         <!-- Assets will be loaded here -->
+                    </div>
+                    <div class="schedule-pm-container">
+                        <button id="schedulePMBtn" class="btn-secondary">
+                            Schedule Preventive Maintenance
+                        </button>
                     </div>
                 </div>
                 
@@ -207,7 +243,16 @@
                         <!-- Checklist items will be loaded here -->
                     </div>
                     
-                    <div class="save-checklist-container">
+                    <div id="signatureDisplay" class="signature-display">
+                        <!-- Signature will be displayed here -->
+                    </div>
+                    
+                    <div class="checklist-actions" id="checklistActions">
+                        <div id="signoffContainer" style="display: none;">
+                            <button id="signoffBtn" class="btn-primary signoff-btn">
+                                Sign Off Checklist
+                            </button>
+                        </div>
                         <button id="saveChecklistBtn" class="btn-primary">
                             Save Checklist
                         </button>
@@ -256,6 +301,72 @@
             </div>
         </div>
     </div>
+    
+    <!-- NCR Details Modal -->
+    <div id="ncrModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="ncrModalTitle">Non-Conformance Report</h3>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="ncrModalContent">
+                    <!-- NCR details will be loaded here -->
+                </div>
+                <div class="form-actions">
+                    <button id="updateNcrBtn" class="btn-primary">Update NCR</button>
+                    <button type="button" class="btn-secondary modal-close">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- E-Signature Modal -->
+    <div id="eSignatureModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Sign Off Checklist</h3>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Please provide your digital signature below.</p>
+                <canvas id="signatureCanvas" class="signature-canvas"></canvas>
+                <div class="form-actions">
+                    <button id="signoffSaveBtn" class="btn-primary">Save Signature</button>
+                    <button id="signoffClearBtn" type="button" class="btn-secondary">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- PM Schedule Modal -->
+    <div id="pmScheduleModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Schedule Preventive Maintenance</h3>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="pmScheduleForm">
+                    <div class="form-group">
+                        <label for="pmFrequency">Frequency</label>
+                        <select id="pmFrequency" class="form-control" required>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">Schedule PM</button>
+                        <button type="button" class="btn-secondary modal-close">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
 
     <!-- File Upload Modal -->
     <div id="uploadModal" class="modal">
@@ -289,13 +400,5 @@
     <script src="js/api.js"></script>
     <script src="js/app.js"></script>
     
-    <!-- Service Worker Registration for PWA -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
-                .then(reg => console.log('Service Worker registered'))
-                .catch(err => console.log('Service Worker registration failed'));
-        }
-    </script>
 </body>
 </html>

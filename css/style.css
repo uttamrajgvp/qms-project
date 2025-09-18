@@ -105,8 +105,8 @@ body.dark-mode {
   --bg-header: #2d3748;
   --bg-sidebar: #2d3748;
   --border-color: #4a5568;
-  --text-color: var(--gray-700);
-  --text-muted: var(--gray-600);
+  --text-color: var(--gray-100);
+  --text-muted: var(--gray-400);
 
   color: var(--text-color);
   background-color: var(--bg-color);
@@ -594,7 +594,7 @@ body {
 
 .dashboard-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--box-shadow-lg);
 }
 
 .card-icon {
@@ -824,7 +824,6 @@ body {
   font-size: var(--font-size-sm);
   cursor: pointer;
   transition: var(--transition-fast);
-  color: var(--text-color)
 }
 
 .upload-btn:hover {
@@ -836,6 +835,89 @@ body {
   text-align: right;
   border-top: 1px solid var(--border-color);
   margin-top: var(--spacing-4);
+}
+
+.checklist-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--spacing-6);
+  padding: var(--spacing-4);
+  border-top: 1px solid var(--border-color);
+}
+
+.signoff-btn {
+  width: auto;
+  min-width: 200px;
+  padding: var(--spacing-3) var(--spacing-6);
+}
+
+.signature-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: var(--spacing-6);
+  padding: var(--spacing-6);
+  background-color: var(--bg-card);
+  border-radius: var(--border-radius-lg);
+  border: 1px solid var(--border-color);
+}
+
+.signature-image {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  margin-top: var(--spacing-4);
+}
+
+.signed-off-badge {
+  background-color: var(--success-color);
+  color: var(--white);
+  padding: var(--spacing-1) var(--spacing-3);
+  border-radius: var(--border-radius);
+  font-weight: 500;
+}
+
+/* Reports View */
+.reports-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-6);
+}
+
+.chart-container {
+    background-color: var(--bg-card);
+    padding: var(--spacing-6);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--box-shadow);
+    border: 1px solid var(--border-color);
+}
+
+/* NCRs View */
+.ncrs-container {
+    background-color: var(--bg-card);
+    padding: var(--spacing-6);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--box-shadow);
+    border: 1px solid var(--border-color);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th, .data-table td {
+    padding: var(--spacing-3);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    font-weight: 600;
+    color: var(--text-color);
+    background-color: var(--gray-100);
 }
 
 /* Modals */
@@ -917,6 +999,15 @@ body {
   display: flex;
   gap: var(--spacing-3);
   margin-top: var(--spacing-4);
+}
+
+.signature-canvas {
+  width: 100%;
+  height: 200px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background-color: var(--white);
+  cursor: crosshair;
 }
 
 /* Toast Notifications */
@@ -1033,8 +1124,10 @@ body {
     max-width: none;
   }
   
-  .save-checklist-container {
+  .save-checklist-container, .checklist-actions {
     text-align: center;
+    flex-direction: column;
+    gap: var(--spacing-3);
   }
 }
 

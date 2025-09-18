@@ -268,6 +268,15 @@ class APIHelper {
         });
         return response.data;
     }
+    
+    // New method to get checklist items by document type ID
+    async getChecklistItemsByDocumentType(documentTypeId) {
+        const response = await this.request('GET', 'checklists.php', { 
+            document_type_id: documentTypeId, 
+            get_default_items: 1 
+        });
+        return response.data;
+    }
 
     async createChecklist(checklistData) {
         const response = await this.request('POST', 'checklists.php', checklistData);
@@ -277,6 +286,15 @@ class APIHelper {
     // New method for bulk saving a checklist
     async saveChecklist(checklistData) {
         const response = await this.request('PUT', 'checklists.php', checklistData);
+        return response;
+    }
+    
+    // New method for signing off a checklist
+    async signOffChecklist(checklistId, signatureImage) {
+        const response = await this.request('PUT', `checklists.php?signoff=1`, {
+            id: checklistId,
+            signature_image: signatureImage
+        });
         return response;
     }
 
@@ -292,6 +310,40 @@ class APIHelper {
     async getDashboardMetrics() {
         const response = await this.request('GET', 'dashboard.php');
         return response.data;
+    }
+    
+    // New methods for Standards
+    async getStandardById(standardId) {
+        const response = await this.request('GET', 'standards.php', { id: standardId });
+        return response.data;
+    }
+    
+    // New methods for NCRs
+    async getNCRs(filters = {}) {
+        const response = await this.request('GET', 'ncrs.php', filters);
+        return response.data;
+    }
+    
+    async updateNCR(ncrId, updateData) {
+        const response = await this.request('PUT', 'ncrs.php', { id: ncrId, ...updateData });
+        return response;
+    }
+    
+    // New method for reports
+    async getReportData(reportType, filters = {}) {
+        const response = await this.request('GET', 'reports.php', { type: reportType, ...filters });
+        return response.data;
+    }
+    
+    // New methods for maintenance schedules
+    async getMaintenanceSchedules(filters = {}) {
+        const response = await this.request('GET', 'maintenance.php', filters);
+        return response.data;
+    }
+    
+    async scheduleMaintenance(scheduleData) {
+        const response = await this.request('POST', 'maintenance.php', scheduleData);
+        return response;
     }
 
     // File upload methods

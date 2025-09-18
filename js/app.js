@@ -17,6 +17,13 @@ class QuailtyMedApp {
         // Theme state
         this.theme = localStorage.getItem('theme') || 'light';
         
+        // E-signature
+        this.signaturePad = null;
+        
+        // Charts
+        this.complianceChart = null;
+        this.standardsChart = null;
+
         // Bind methods to maintain context
         this.handleLogin = this.handleLogin.bind(this);
         this.handleLogout = this.handleLogout.bind(this);
@@ -28,6 +35,10 @@ class QuailtyMedApp {
         this.selectAsset = this.selectAsset.bind(this);
         this.saveChecklist = this.saveChecklist.bind(this);
         this.toggleTheme = this.toggleTheme.bind(this);
+        this.showReports = this.showReports.bind(this);
+        this.showNCRs = this.showNCRs.bind(this);
+        this.updateNCR = this.updateNCR.bind(this);
+        this.schedulePM = this.schedulePM.bind(this);
     }
 
     /**
@@ -39,6 +50,13 @@ class QuailtyMedApp {
             
             // Set initial theme
             this.setTheme(this.theme);
+            
+            // Register service worker for offline support
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker registered', reg))
+                    .catch(err => console.error('Service Worker registration failed', err));
+            }
             
             // Check if user is already logged in
             const user = await api.getCurrentUser();
@@ -115,6 +133,33 @@ class QuailtyMedApp {
         
         // Save Checklist Button
         document.getElementById('saveChecklistBtn')?.addEventListener('click', this.saveChecklist);
+        
+        // New quick action buttons
+        document.getElementById('createChecklistBtn')?.addEventListener('click', () => {
+            this.showView('departments');
+        });
+        document.getElementById('showReportsBtn')?.addEventListener('click', this.showReports);
+        document.getElementById('showNCRsBtn')?.addEventListener('click', this.showNCRs);
+        document.getElementById('schedulePMBtn')?.addEventListener('click', () => {
+            this.showModal(document.getElementById('pmScheduleModal'));
+        });
+
+        // E-Signature
+        document.getElementById('signoffBtn')?.addEventListener('click', () => {
+            this.showModal(document.getElementById('eSignatureModal'));
+        });
+        document.getElementById('signoffSaveBtn')?.addEventListener('click', () => {
+            this.signOffChecklist();
+        });
+        document.getElementById('signoffClearBtn')?.addEventListener('click', () => {
+            this.signaturePad.clear();
+        });
+        
+        // PM Schedule
+        document.getElementById('schedulePMForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.schedulePM();
+        });
 
         // Modal close handlers
         document.querySelectorAll('.modal-close').forEach(btn => {
@@ -541,10 +586,14 @@ class QuailtyMedApp {
      */
     async createNewChecklist() {
         try {
+            // Fetch checklist items dynamically from the database
+            const defaultItems = await api.getChecklistItemsByDocumentType(this.selectedDocumentType.id);
+
             const checklistData = {
                 asset_id: this.selectedAsset.id,
                 document_type_id: this.selectedDocumentType.id,
-                checklist_name: `${this.selectedDocumentType.name} - ${new Date().toLocaleDateString()}`
+                checklist_name: `${this.selectedDocumentType.name} - ${new Date().toLocaleDateString()}`,
+                items: defaultItems
             };
             
             const response = await api.createChecklist(checklistData);
@@ -603,6 +652,25 @@ class QuailtyMedApp {
             // Bind events for this item
             this.bindChecklistItemEvents(itemDiv, item);
         });
+
+        // Add the signoff button if the checklist is completed
+        const signoffContainer = document.getElementById('signoffContainer');
+        if (this.currentChecklist.status === 'completed' && signoffContainer) {
+            signoffContainer.style.display = 'block';
+        } else {
+            signoffContainer.style.display = 'none';
+        }
+
+        // If signed off, display the signature
+        const signatureDisplay = document.getElementById('signatureDisplay');
+        if (this.currentChecklist.status === 'signed_off' && signatureDisplay) {
+            signatureDisplay.innerHTML = `
+                <div class="signed-off-badge">✅ Signed Off by ${api.sanitizeHTML(this.currentChecklist.signed_off_by_name)} on ${api.formatDate(this.currentChecklist.signed_off_at)}</div>
+                <img src="${this.currentChecklist.signature_image}" alt="Digital Signature" class="signature-image"/>
+            `;
+        } else {
+            signatureDisplay.innerHTML = '';
+        }
     }
 
     /**
@@ -629,6 +697,9 @@ class QuailtyMedApp {
             </div>
         ` : '';
 
+        // Disable controls if signed off
+        const disabled = this.currentChecklist.status === 'signed_off' ? 'disabled' : '';
+
         return `
             <div class="checklist-question">
                 ${api.sanitizeHTML(item.question)}
@@ -639,21 +710,21 @@ class QuailtyMedApp {
             <div class="checklist-controls">
                 <div class="result-options">
                     <button class="result-option pass ${resultClass === 'pass' ? 'active' : ''}" 
-                            data-result="pass" data-item-id="${item.id}">✓ Pass</button>
+                            data-result="pass" data-item-id="${item.id}" ${disabled}>✓ Pass</button>
                     <button class="result-option fail ${resultClass === 'fail' ? 'active' : ''}" 
-                            data-result="fail" data-item-id="${item.id}">✗ Fail</button>
+                            data-result="fail" data-item-id="${item.id}" ${disabled}>✗ Fail</button>
                     <button class="result-option na ${resultClass === 'na' ? 'active' : ''}" 
-                            data-result="na" data-item-id="${item.id}">N/A</button>
+                            data-result="na" data-item-id="${item.id}" ${disabled}>N/A</button>
                 </div>
             </div>
             
             <div class="remarks-section">
                 <textarea class="remarks-input" placeholder="Add remarks..." 
-                          data-item-id="${item.id}">${remarksValue}</textarea>
+                          data-item-id="${item.id}" ${disabled}>${remarksValue}</textarea>
             </div>
             
             <div class="upload-evidence">
-                <button class="upload-btn" data-item-id="${item.id}">
+                <button class="upload-btn" data-item-id="${item.id}" ${disabled}>
                     📎 Upload Evidence
                 </button>
                 ${attachmentInfo}
@@ -748,23 +819,101 @@ class QuailtyMedApp {
             this.loadChecklist(this.currentChecklist.id);
         }
     }
+    
+    /**
+     * Handle checklist sign-off
+     */
+    async signOffChecklist() {
+        if (!this.signaturePad || this.signaturePad.isEmpty()) {
+            api.showToast('Please provide a signature.', 'error');
+            return;
+        }
+
+        const signatureImage = this.signaturePad.toDataURL(); // Get signature as base64
+        const signoffBtn = document.getElementById('signoffSaveBtn');
+        signoffBtn.disabled = true;
+        signoffBtn.textContent = 'Signing...';
+
+        try {
+            const response = await api.signOffChecklist(this.currentChecklist.id, signatureImage);
+            if (response.success) {
+                api.showToast('Checklist signed off successfully!', 'success');
+                this.hideModal(document.getElementById('eSignatureModal'));
+                await this.loadChecklist(this.currentChecklist.id); // Reload to show signature
+            } else {
+                api.showToast(response.error || 'Failed to sign off checklist.', 'error');
+            }
+        } catch (error) {
+            console.error('Sign off failed:', error);
+            api.showToast('Failed to sign off checklist.', 'error');
+        } finally {
+            signoffBtn.disabled = false;
+            signoffBtn.textContent = 'Save Signature';
+        }
+    }
+    
+    /**
+     * Handle PM scheduling
+     */
+    async schedulePM() {
+        const form = document.getElementById('pmScheduleForm');
+        const frequency = form.querySelector('#pmFrequency').value;
+
+        if (!this.selectedAsset || !this.selectedDocumentType || !frequency) {
+            api.showToast('Please select an asset, document type, and frequency.', 'error');
+            return;
+        }
+        
+        const scheduleData = {
+            asset_id: this.selectedAsset.id,
+            document_type_id: this.selectedDocumentType.id,
+            frequency: frequency
+        };
+
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Scheduling...';
+
+        try {
+            const response = await api.scheduleMaintenance(scheduleData);
+            if (response.success) {
+                api.showToast('Maintenance scheduled successfully!', 'success');
+                this.hideModal(document.getElementById('pmScheduleModal'));
+            } else {
+                api.showToast(response.error || 'Failed to schedule maintenance.', 'error');
+            }
+        } catch (error) {
+            console.error('Scheduling failed:', error);
+            api.showToast('Failed to schedule maintenance.', 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Schedule PM';
+        }
+    }
 
     /**
      * Show standard details modal
      * @param {number} standardId Standard ID
      */
     async showStandardModal(standardId) {
-        // For now, show a simple modal with standard info
-        // In a full implementation, you'd fetch standard details from API
-        const modal = document.getElementById('standardModal');
-        document.getElementById('standardModalTitle').textContent = 'Standard Details';
-        document.getElementById('standardModalContent').innerHTML = `
-            <p>Standard ID: ${standardId}</p>
-            <p>This would show full standard clause details from NABH/JCI database.</p>
-            <p>Implementation note: Add API endpoint to fetch standard details.</p>
-        `;
-        
-        this.showModal(modal);
+        try {
+            const standard = await api.getStandardById(standardId);
+            if (standard) {
+                const modal = document.getElementById('standardModal');
+                document.getElementById('standardModalTitle').textContent = `${standard.source} ${standard.clause_id}`;
+                document.getElementById('standardModalContent').innerHTML = `
+                    <h3>${api.sanitizeHTML(standard.title)}</h3>
+                    <p>${api.sanitizeHTML(standard.description)}</p>
+                    <p><strong>Category:</strong> ${api.sanitizeHTML(standard.category)}</p>
+                `;
+                this.showModal(modal);
+            } else {
+                api.showToast('Standard details not found', 'error');
+            }
+        } catch (error) {
+            console.error('Failed to load standard details:', error);
+            api.showToast('Failed to load standard details', 'error');
+        }
     }
 
     /**
@@ -816,7 +965,248 @@ class QuailtyMedApp {
             api.showToast('File upload failed', 'error');
         }
     }
+    
+    /**
+     * Show reports view
+     */
+    async showReports() {
+        this.showView('reports');
+        try {
+            const reports = await api.getReportData('compliance');
+            this.renderReports(reports);
+        } catch (error) {
+            console.error('Failed to load reports:', error);
+            api.showToast('Failed to load reports', 'error');
+        }
+    }
+    
+    /**
+     * Render reports data using Chart.js
+     * @param {Object} reportsData Reports data
+     */
+    renderReports(reportsData) {
+        // Destroy old charts if they exist
+        if (this.complianceChart) this.complianceChart.destroy();
+        if (this.standardsChart) this.standardsChart.destroy();
+        
+        const complianceCtx = document.getElementById('complianceChart').getContext('2d');
+        this.complianceChart = new Chart(complianceCtx, {
+            type: 'bar',
+            data: {
+                labels: reportsData.department_compliance.map(d => d.department_name),
+                datasets: [{
+                    label: 'Compliance Percentage',
+                    data: reportsData.department_compliance.map(d => d.compliance_percentage),
+                    backgroundColor: reportsData.department_compliance.map(d => {
+                        if (d.compliance_percentage >= 90) return '#00cc88';
+                        if (d.compliance_percentage >= 75) return '#ffaa00';
+                        return '#ff3333';
+                    }),
+                    borderColor: reportsData.department_compliance.map(d => {
+                        if (d.compliance_percentage >= 90) return '#009966';
+                        if (d.compliance_percentage >= 75) return '#cc8800';
+                        return '#cc2929';
+                    }),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Compliance by Department'
+                    }
+                }
+            }
+        });
+        
+        const standardsCtx = document.getElementById('standardsChart').getContext('2d');
+        this.standardsChart = new Chart(standardsCtx, {
+            type: 'doughnut',
+            data: {
+                labels: reportsData.standards_compliance.map(s => `${s.source} ${s.clause_id}`),
+                datasets: [{
+                    label: 'Compliance by Standard',
+                    data: reportsData.standards_compliance.map(s => s.compliance_percentage),
+                    backgroundColor: [
+                        '#00cc88', '#ffaa00', '#ff3333', '#0077ff', '#33e6ff', '#00ffaa'
+                    ],
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Compliance by Standard'
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * Show NCRs view
+     */
+    async showNCRs() {
+        this.showView('ncrs');
+        try {
+            const ncrs = await api.getNCRs();
+            this.renderNCRs(ncrs);
+        } catch (error) {
+            console.error('Failed to load NCRs:', error);
+            api.showToast('Failed to load NCRs', 'error');
+        }
+    }
+    
+    /**
+     * Render NCRs data
+     * @param {Array} ncrs List of NCRs
+     */
+    renderNCRs(ncrs) {
+        const container = document.getElementById('ncrsContainer');
+        if (!container) return;
+        
+        container.innerHTML = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>NCR #</th>
+                        <th>Description</th>
+                        <th>Asset</th>
+                        <th>Department</th>
+                        <th>Status</th>
+                        <th>Severity</th>
+                        <th>Raised By</th>
+                        <th>Due Date</th>
+                    </tr>
+                </thead>
+                <tbody id="ncrsTableBody"></tbody>
+            </table>
+        `;
+        
+        const tableBody = document.getElementById('ncrsTableBody');
+        if (ncrs.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="8" style="text-align: center;">No open NCRs found.</td></tr>`;
+            return;
+        }
+        
+        ncrs.forEach(ncr => {
+            tableBody.innerHTML += `
+                <tr data-ncr-id="${ncr.id}">
+                    <td>${api.sanitizeHTML(ncr.ncr_number)}</td>
+                    <td>${api.sanitizeHTML(ncr.description)}</td>
+                    <td>${api.sanitizeHTML(ncr.asset_name)}</td>
+                    <td>${api.sanitizeHTML(ncr.department_name)}</td>
+                    <td>${api.sanitizeHTML(ncr.status)}</td>
+                    <td>${api.sanitizeHTML(ncr.severity)}</td>
+                    <td>${api.sanitizeHTML(ncr.raised_by_name)}</td>
+                    <td>${api.sanitizeHTML(ncr.due_date)}</td>
+                </tr>
+            `;
+        });
+        
+        // Add click event for each row to open a modal for updates
+        tableBody.querySelectorAll('tr').forEach(row => {
+            row.addEventListener('click', () => this.showNCRModal(row.dataset.ncrId));
+        });
+    }
+    
+    /**
+     * Show NCR details modal
+     * @param {number} ncrId NCR ID
+     */
+    async showNCRModal(ncrId) {
+        try {
+            const ncrs = await api.getNCRs({ id: ncrId });
+            const ncr = ncrs.find(n => n.id == ncrId);
+            
+            if (!ncr) {
+                api.showToast('NCR not found', 'error');
+                return;
+            }
+            
+            const modal = document.getElementById('ncrModal');
+            document.getElementById('ncrModalTitle').textContent = `NCR #${ncr.ncr_number}`;
+            
+            const ncrContent = document.getElementById('ncrModalContent');
+            ncrContent.innerHTML = `
+                <p><strong>Description:</strong> ${api.sanitizeHTML(ncr.description)}</p>
+                <p><strong>Asset:</strong> ${api.sanitizeHTML(ncr.asset_name)} (${api.sanitizeHTML(ncr.asset_tag)})</p>
+                <p><strong>Department:</strong> ${api.sanitizeHTML(ncr.department_name)}</p>
+                <p><strong>Status:</strong> <span class="status-badge ${api.getStatusClass(ncr.status)}">${api.sanitizeHTML(ncr.status)}</span></p>
+                <p><strong>Severity:</strong> ${api.sanitizeHTML(ncr.severity)}</p>
+                <p><strong>Raised By:</strong> ${api.sanitizeHTML(ncr.raised_by_name)} on ${api.formatDate(ncr.created_at)}</p>
+                <div class="form-group">
+                    <label for="ncrStatus">Update Status</label>
+                    <select id="ncrStatus" class="form-control">
+                        <option value="open" ${ncr.status === 'open' ? 'selected' : ''}>Open</option>
+                        <option value="in_progress" ${ncr.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+                        <option value="closed" ${ncr.status === 'closed' ? 'selected' : ''}>Closed</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="ncrRootCause">Root Cause Analysis</label>
+                    <textarea id="ncrRootCause" class="form-control" rows="3" placeholder="Enter root cause...">${api.sanitizeHTML(ncr.root_cause || '')}</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="ncrCorrectiveAction">Corrective Action</label>
+                    <textarea id="ncrCorrectiveAction" class="form-control" rows="3" placeholder="Enter corrective action...">${api.sanitizeHTML(ncr.corrective_action || '')}</textarea>
+                </div>
+            `;
+            
+            const updateBtn = document.getElementById('updateNcrBtn');
+            updateBtn.onclick = () => this.updateNCR(ncr.id);
+            this.showModal(modal);
 
+        } catch (error) {
+            console.error('Failed to load NCR details:', error);
+            api.showToast('Failed to load NCR details', 'error');
+        }
+    }
+
+    /**
+     * Update an NCR from the modal form
+     * @param {number} ncrId NCR ID
+     */
+    async updateNCR(ncrId) {
+        const updateData = {
+            id: ncrId,
+            status: document.getElementById('ncrStatus').value,
+            root_cause: document.getElementById('ncrRootCause').value,
+            corrective_action: document.getElementById('ncrCorrectiveAction').value
+        };
+
+        const updateBtn = document.getElementById('updateNcrBtn');
+        updateBtn.disabled = true;
+        updateBtn.textContent = 'Updating...';
+
+        try {
+            const response = await api.updateNCR(ncrId, updateData);
+            if (response.success) {
+                api.showToast('NCR updated successfully!', 'success');
+                this.hideModal(document.getElementById('ncrModal'));
+                this.showNCRs(); // Refresh the NCR list
+            } else {
+                api.showToast(response.error || 'Failed to update NCR.', 'error');
+            }
+        } catch (error) {
+            console.error('Failed to update NCR:', error);
+            api.showToast('Failed to update NCR.', 'error');
+        } finally {
+            updateBtn.disabled = false;
+            updateBtn.textContent = 'Update NCR';
+        }
+    }
+    
     /**
      * Load dashboard data
      */
@@ -855,6 +1245,12 @@ class QuailtyMedApp {
         modal.classList.add('show');
         modal.style.display = 'flex';
         
+        // Handle e-signature pad initialization
+        if (modal.id === 'eSignatureModal') {
+            const canvas = document.getElementById('signatureCanvas');
+            this.signaturePad = new SignaturePad(canvas);
+        }
+        
         // Focus first input in modal
         const firstInput = modal.querySelector('input, textarea, select, button');
         if (firstInput) {
@@ -871,6 +1267,11 @@ class QuailtyMedApp {
         setTimeout(() => {
             modal.style.display = 'none';
         }, 300);
+        
+        // Clear signature pad on close
+        if (this.signaturePad) {
+            this.signaturePad.clear();
+        }
     }
 
     /**

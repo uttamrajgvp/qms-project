@@ -29,8 +29,7 @@ switch ($method) {
 
 /**
  * Handle report generation requests
- * 
- * Supported reports:
+ * * Supported reports:
  * - checklists: Checklist compliance report
  * - ncrs: Non-conformance reports
  * - maintenance: Maintenance logs
@@ -188,7 +187,7 @@ function generateNCRReport($format) {
                 s.source as standard_source,
                 s.clause_id as standard_clause
             FROM ncrs n
-            JOIN departments d ON n.department_id = d.id
+            LEFT JOIN departments d ON n.department_id = d.id
             LEFT JOIN assets a ON n.asset_id = a.id
             JOIN users u1 ON n.raised_by = u1.id
             LEFT JOIN users u2 ON n.assigned_to = u2.id
@@ -670,4 +669,3 @@ function generateCompliancePDFHTML($data) {
     
     return $html;
 }
-?>
